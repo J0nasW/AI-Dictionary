@@ -2,12 +2,13 @@ import pandas as pd
 import time
 import hashlib
 from sqlalchemy import create_engine, URL, text
-from tqdm import tqdm
 
 from helper.keyword_helper import get_clean_keywords, get_sentence_embeddings
 
 KEYWORDS = True
+EXIST_KEXWORDS = False # Only takes effect, if KEYWORDS is False
 EMBEDDINGS = True
+EXISTING_EMBEDDINGS = False # Only takes effect, if EMBEDDINGS is False
 EMBEDDING_MODEL = "malteos/scincl"
 
 OPENALEX_IDS = True
@@ -40,6 +41,13 @@ def format_time(seconds):
     hours, remainder = divmod(seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     return f"{int(hours)}h {int(minutes)}m {seconds:.2f}s"
+
+def is_iterable(x):
+    try:
+        iter(x)
+        return True
+    except TypeError:
+        return False
 
 if __name__ == "__main__":
     print("---")
@@ -79,6 +87,35 @@ if __name__ == "__main__":
         except Exception as e:
             print("Error calculating keywords.")
             print(e)
+    elif EXIST_KEXWORDS:
+        try:
+            print("")
+            print("[KEYWORDS]")
+            print("Extracting existing keywords from processed_jsons...")
+            timestamp = time.time()
+            
+            processed_papers = pd.read_json(PROCESSED_JSON_PATH + "papers_processed.json", dtype={"id": str})
+            processed_methods = pd.read_json(PROCESSED_JSON_PATH + "methods_processed.json", dtype={"id": str})
+            processed_datasets = pd.read_json(PROCESSED_JSON_PATH + "datasets_processed.json", dtype={"id": str})
+            processed_areas = pd.read_json(PROCESSED_JSON_PATH + "areas_processed.json", dtype={"id_md5": str})
+            processed_tasks = pd.read_json(PROCESSED_JSON_PATH + "tasks_processed.json", dtype={"area_id_md5": str, "id_md5": str})
+            
+            papers["abstract_keywords"] = processed_papers["abstract_keywords"]
+            methods["description_keywords"] = processed_methods["description_keywords"]
+            datasets["description_keywords"] = processed_datasets["description_keywords"]
+            tasks["description_keywords"] = processed_tasks["description_keywords"]
+            
+            print("")
+            print(f"Done extracting existing keywords. Time elapsed: {format_time(time.time() - timestamp)}")
+            print("")
+        except Exception as e:
+            print("Error extracting existing keywords.")
+            print(e)
+    else:
+        print("")
+        print("[KEYWORDS]")
+        print("No keywords will be extracted and written to the processed json.")
+        print("")
         
     if EMBEDDINGS:
         try:
@@ -117,6 +154,40 @@ if __name__ == "__main__":
         except Exception as e:
             print("Error calculating embeddings.")
             print(e)
+    elif EXISTING_EMBEDDINGS:
+        try:
+            print("")
+            print("[EMBEDDINGS]")
+            print("Extracting existing embeddings from processed_jsons...")
+            timestamp = time.time()
+            
+            processed_papers = pd.read_json(PROCESSED_JSON_PATH + "papers_processed.json", dtype={"id": str})
+            processed_methods = pd.read_json(PROCESSED_JSON_PATH + "methods_processed.json", dtype={"id": str})
+            processed_datasets = pd.read_json(PROCESSED_JSON_PATH + "datasets_processed.json", dtype={"id": str})
+            processed_areas = pd.read_json(PROCESSED_JSON_PATH + "areas_processed.json", dtype={"id_md5": str})
+            processed_tasks = pd.read_json(PROCESSED_JSON_PATH + "tasks_processed.json", dtype={"area_id_md5": str, "id_md5": str})
+            
+            papers["title_embedding"] = processed_papers["title_embedding"]
+            papers["abstract_embedding"] = processed_papers["abstract_embedding"]
+            methods["name_embedding"] = processed_methods["name_embedding"]
+            methods["description_embedding"] = processed_methods["description_embedding"]
+            tasks["name_embedding"] = processed_tasks["name_embedding"]
+            tasks["description_embedding"] = processed_tasks["description_embedding"]
+            datasets["name_embedding"] = processed_datasets["name_embedding"]
+            datasets["description_embedding"] = processed_datasets["description_embedding"]
+            areas["name_embedding"] = processed_areas["name_embedding"]
+            
+            print("")
+            print(f"Done extracting existing embeddings. Time elapsed: {format_time(time.time() - timestamp)}")
+            print("")
+        except Exception as e:
+            print("Error extracting existing embeddings.")
+            print(e)
+    else:   
+        print("")
+        print("[EMBEDDINGS]")
+        print("No embeddings will be calculated and written to the processed json.")
+        print("")
         
     if OPENALEX_IDS:
         try:
@@ -131,7 +202,7 @@ if __name__ == "__main__":
                 openalex_ids = pd.read_sql(sql=text(query), con=conn)
                 print(f"Got {len(openalex_ids)} OpenAlex IDs.")
                 openalex_ids["arxiv_id"] = openalex_ids["landing_page_url"].apply(lambda x: x[x.rfind("/") + 1:])
-                merged_df = papers.merge(openalex_ids[['arxiv_id', 'work_id']], on='arxiv_id', how='left')
+                merged_df = papers.merge(openalex_ids[['arxiv_id', 'work_id']], on='arxiv_id', how="left")
                 papers = merged_df.rename(columns={'work_id': 'openalex_id'})
                 print(f"Got {papers['openalex_id'].notnull().sum()} OpenAlex IDs from the arXiv IDs ({(papers['openalex_id'].notnull().sum() / papers['arxiv_id'].notnull().sum()) * 100}%).")
             print(f"Done fetching all arxiv related OpenAlex IDs. Total time elapsed: {format_time(time.time() - timestamp)}")
@@ -155,7 +226,7 @@ if __name__ == "__main__":
                 result = pd.read_sql(sql=text(query), con=conn)
                 columns_to_drop = [result.columns[-1], "abstract_inverted_index", "display_name", "title", "abstract", "abstract_embedding"]
                 result = result.drop(columns=columns_to_drop)
-                papers = papers.merge(result, left_on="openalex_id", right_on="id", suffixes=("", "_openalex"))
+                papers = papers.merge(result, left_on="openalex_id", right_on="id", suffixes=("", "_openalex"), how="left")
                 papers["id"] = papers["id"].astype(str)
                 # result = result.drop(columns=["id_openalex"])
                 print(f"Got {len(result)} works from OpenAlex ({(len(result) / len(openalex_ids_single)) * 100}%).")
@@ -180,6 +251,7 @@ if __name__ == "__main__":
                 result = pd.read_sql(sql=text(query), con=conn)
                 columns_to_drop = [result.columns[-1], "raw_affiliation_string"]
                 result = result.drop(columns=columns_to_drop)
+                print("SQL Operations done.")
                 
                 # Neo4J Edges
                 work_author_edges_csv = result[["work_id", "author_id", "author_position", "institution_id"]]
@@ -194,7 +266,7 @@ if __name__ == "__main__":
                 print(f"Saved {len(work_author_edges_csv)} authorship edges to {NEO4J_PATH}authors_papers.csv.")
                 
                 result = result.groupby("work_id").apply(lambda x: x.to_dict(orient="records")).reset_index(name="authorships")
-                papers = papers.merge(result, left_on="openalex_id", right_on="work_id", suffixes=("", "_openalex_authors"))
+                papers = papers.merge(result, left_on="openalex_id", right_on="work_id", suffixes=("", "_openalex_authors"), how="left")
                 papers["id"] = papers["id"].astype(str)
                 print(f"Got {len(result)} authorships from OpenAlex ({(len(result) / len(openalex_ids_single)) * 100}%).")
             print(f"Done fetching author information for each OpenAlex paper. Total time elapsed: {format_time(time.time() - timestamp)}")
@@ -209,7 +281,7 @@ if __name__ == "__main__":
                 # Get all author ids from the papers dataframe
                 timestamp = time.time()
                 # Fetch all author_ids from the papers dataframe stored in the column authorships as list of dicts
-                author_ids_single = pd.DataFrame([author["author_id"] for authorships in papers["authorships"] for author in authorships], columns=["author_id"])
+                author_ids_single = pd.DataFrame([author["author_id"] for authorships in papers["authorships"] if is_iterable(authorships) for author in authorships], columns=["author_id"])
                 print(f"Got {len(author_ids_single)} OpenAlex Author IDs.")
                 author_ids_single.to_sql("temp_table_authors", con=conn, schema="openalex", if_exists="replace", index=False)
                 query = """
@@ -222,6 +294,7 @@ if __name__ == "__main__":
                 authors = result.drop(columns=columns_to_drop)
                 authors["id_md5"] = ("author/" + authors["id"]).apply(lambda x: str(int(hashlib.md5(x.encode('utf-8')).hexdigest(), 16)))
                 authors.to_json(PROCESSED_JSON_PATH + "authors.json", orient="records")
+                print("SQL Operations done.")
                 
                 # Neo4J Nodes
                 authors_csv = authors.rename(columns={"id": "openalex_id"})
@@ -256,6 +329,7 @@ if __name__ == "__main__":
                 institutions = result.drop(columns=columns_to_drop)
                 institutions["id_md5"] = ("institution/" + institutions["id"]).apply(lambda x: str(int(hashlib.md5(x.encode('utf-8')).hexdigest(), 16)))
                 institutions.to_json(PROCESSED_JSON_PATH + "institutions.json", orient="records")
+                print("SQL Operations done.")
                 
                 # Neo4J Nodes
                 institutions_csv = institutions.rename(columns={"id": "openalex_id"})
@@ -295,6 +369,7 @@ if __name__ == "__main__":
                 print(f"Got {len(result)} citations to {len(openalex_ids_single)} Works from OpenAlex.")
                 columns_to_drop = [result.columns[-1]]
                 result = result.drop(columns=columns_to_drop)
+                print("SQL Operations done.")
                 
                 # In the result df, drop all rows, where the referenced_work_id is not in the openalex_ids_single df
                 result_filtered = result[result["referenced_work_id"].isin(openalex_ids_single["oalex_id"])]
@@ -321,7 +396,7 @@ if __name__ == "__main__":
                 result = result.groupby("work_id").apply(lambda x: x.to_dict(orient="records")).reset_index(name="citations")
                 # For the merge with the papers dataframe, only list the referenced_work_id in the citations column
                 result["citations"] = result["citations"].apply(lambda x: [citation["referenced_work_id"] for citation in x])
-                papers = papers.merge(result, left_on="openalex_id", right_on="work_id", suffixes=("", "_openalex_citations"))
+                papers = papers.merge(result, left_on="openalex_id", right_on="work_id", suffixes=("", "_openalex_citations"), how="left")
                 print("Result query after merge")
                 
                 print(f"Got {len(work_citation_edges_csv)} citations from OpenAlex.")

@@ -13,8 +13,16 @@ import yake
 import ahocorasick
 from multiprocessing import Pool, cpu_count
 import numpy as np
+from scipy.optimize import curve_fit
 
 from sentence_transformers import SentenceTransformer
+
+from transformers import pipeline
+import torch
+
+from openTSNE import TSNE
+import openTSNE
+from hdbscan import HDBSCAN
 
 def neo4j_fetch_data(query, credentials):
     with GraphDatabase.driver(credentials["url"], auth=(credentials["user"], credentials["password"])) as driver:
@@ -58,12 +66,14 @@ def extract_keywords_helper(args):
 
 def extract_keywords(row, column_name):
     try:
+        if row[column_name] is None:
+            return [], []
         # Extract keywords using YAKE
         unfiltered_keywords = yake_extractor.extract_keywords(row[column_name])
         doc = nlp(row[column_name])
         noun_chunks = [chunk.text.strip().lower() for chunk in doc.noun_chunks]
-        filtered_keywords = [(keyword, score) for keyword, score in unfiltered_keywords if any(keyword.lower() in noun_chunk for noun_chunk in noun_chunks)]
-        filtered_keywords = [(lemmatizer.lemmatize(keyword) if len(keyword.split()) == 1 else " ".join([lemmatizer.lemmatize(word) for word in keyword.split()]), score) for keyword, score in filtered_keywords]
+        filtered_keywords = [(keyword.lower(), score) for keyword, score in unfiltered_keywords if any(keyword.lower() in noun_chunk for noun_chunk in noun_chunks)]
+        filtered_keywords = [(lemmatizer.lemmatize(keyword).lower() if len(keyword.split()) == 1 else " ".join([lemmatizer.lemmatize(word).lower() for word in keyword.split()]), score) for keyword, score in filtered_keywords]
         return unfiltered_keywords, filtered_keywords
     except:
         return [], []
@@ -105,24 +115,24 @@ def get_clean_keywords(df, column_names):
             print(f"Ended up with {df[f'{column_name}_keywords'].apply(len).sum()} keywords.")
 
         pool.close()
-        pool.join()    
+        pool.join()
     
     return df
 
 def process_keywords_for_papers(filtered_keywords, keyword_freq_range):
-    nlp = spacy.load("en_core_web_sm")
-    lemmatizer = WordNetLemmatizer()
+    # nlp = spacy.load("en_core_web_sm")
+    # lemmatizer = WordNetLemmatizer()
 
-    def is_noun(keyword):
-        return any(token.pos_ == 'NOUN' for token in nlp(keyword))
+    # def is_noun(keyword):
+    #     return any(token.pos_ == 'NOUN' for token in nlp(keyword))
 
-    filtered_keywords = filtered_keywords[~filtered_keywords['keyword'].str.contains(r'[A-Z]{2,4}')]
-    filtered_keywords['keyword'] = filtered_keywords['keyword'].apply(lambda keyword: keyword.lower())
-    filtered_keywords = filtered_keywords.dropna()
-    filtered_keywords['keyword'] = filtered_keywords['keyword'].apply(lambda keyword: keyword if not keyword.startswith('(') and not keyword.endswith(')') else None)
-    filtered_keywords = filtered_keywords.dropna()
+    # filtered_keywords = filtered_keywords[~filtered_keywords['keyword'].str.contains(r'[A-Z]{2,4}')]
+    # filtered_keywords['keyword'] = filtered_keywords['keyword'].apply(lambda keyword: keyword.lower())
+    # filtered_keywords = filtered_keywords.dropna()
+    # filtered_keywords['keyword'] = filtered_keywords['keyword'].apply(lambda keyword: keyword if not keyword.startswith('(') and not keyword.endswith(')') else None)
+    # filtered_keywords = filtered_keywords.dropna()
 
-    filtered_keywords['keyword'] = filtered_keywords['keyword'].progress_apply(lambda keyword: lemmatizer.lemmatize(keyword) if len(keyword.split()) == 1 else " ".join([lemmatizer.lemmatize(word) for word in keyword.split()]))
+    # filtered_keywords['keyword'] = filtered_keywords['keyword'].progress_apply(lambda keyword: lemmatizer.lemmatize(keyword) if len(keyword.split()) == 1 else " ".join([lemmatizer.lemmatize(word) for word in keyword.split()]))
 
     dedupe_keywords = filtered_keywords.drop_duplicates(subset=['keyword'])
     dedupe_keywords['frequency'] = filtered_keywords.groupby('keyword')['keyword'].transform('count')
@@ -138,10 +148,49 @@ def process_keywords_for_papers(filtered_keywords, keyword_freq_range):
 
     dedupe_keywords_f = dedupe_keywords[(dedupe_keywords['frequency'] >= keyword_freq_range[0]) & (dedupe_keywords['frequency'] <= keyword_freq_range[1])]
 
-    dedupe_keywords_f['keyword'] = dedupe_keywords_f['keyword'].progress_apply(lambda keyword: keyword if is_noun(keyword) else None)
-    dedupe_keywords_f = dedupe_keywords_f.dropna()
+    # dedupe_keywords_f['keyword'] = dedupe_keywords_f['keyword'].progress_apply(lambda keyword: keyword if is_noun(keyword) else None)
+    # dedupe_keywords_f = dedupe_keywords_f.dropna()
 
     dedupe_keywords_f = dedupe_keywords_f.drop_duplicates(subset=['keyword'])
     dedupe_keywords_f = dedupe_keywords_f.reset_index(drop=True)
 
     return dedupe_keywords_f
+
+def get_tsne_coordinates(x):
+    keyword_embeddings_affinities = openTSNE.affinity.Multiscale(
+        x,
+        perplexities=[50, 200],
+        metric="cosine",
+        n_jobs=8,
+        random_state=3,
+        verbose=True,
+    )
+    init = openTSNE.initialization.pca(
+        x,
+        random_state=42,
+        verbose=True,
+    )
+    keyword_embeddings_tsne_2d = openTSNE.TSNE(
+        n_jobs=8,
+        verbose = True,
+        ).fit(
+        affinities=keyword_embeddings_affinities,
+        initialization=init,
+    )
+    return keyword_embeddings_tsne_2d
+
+def representation_generator(keywords):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    model = "google/flan-t5-large"
+    generator = pipeline('text2text-generation', model=model, device=device)
+    # prompt = "I have a general topic described by the following keywords: [KEYWORDS]. Based on these keywords, what is this topic about? Be specific, precise and short! Don't use names or numbers!"
+    prompt = "Based on the following keywords, come up with a topic name that is specific and precise: [KEYWORDS]"
+    keyword_string = ', '.join(keywords)[:2000]
+    representation = generator(
+        prompt.replace('[KEYWORDS]', keyword_string),
+        max_length=10,
+        do_sample=True,
+        temperature=0.9
+    )[0]['generated_text']
+    return representation
