@@ -1,5 +1,8 @@
 # Custom Folders
 /data
+/archive
+/images
+/plots
 *.DS_Store
 
 # Byte-compiled / optimized / DLL files

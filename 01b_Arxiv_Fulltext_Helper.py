@@ -1,5 +1,5 @@
 from pdfminer.high_level import extract_text
-import os, re, uuid
+import os, re, uuid, time
 import pandas as pd
 from tqdm import tqdm
 import numpy as np
@@ -17,6 +17,9 @@ PATH_TO_ARXIV_PDFS = "/mnt/hdd02/PubCrawl/tmp/arxiv_pdf/" # Path to the folder w
 PATH_TO_NEO4J_IMPORT = "data/neo4j/"
 
 READ_PDFS = False # Set to true to read the pdfs and create the neo4j import csvs
+
+print(f"START TIME: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
+print("")
 
 papers_df = pd.read_json('data/pwc_processed_json/papers.json', orient='records', dtype={"id": str})
 papers_df = papers_df[['id', 'arxiv_id']]
@@ -134,3 +137,8 @@ fulltext_rel_csv.to_csv(f'{PATH_TO_NEO4J_IMPORT}papers_fulltexts.csv', index=Fal
 print(f"Sample fulltext relationships: {fulltext_rel_csv.sample(5).to_dict(orient='records')}")
 
 print("Done.")
+print("")
+
+print(f"END TIME: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
+print("---")
+print("Goodbye!")

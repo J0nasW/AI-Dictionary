@@ -76,7 +76,7 @@ if __name__ == "__main__":
             print("Extracting keywords...")
             timestamp = time.time()
             
-            papers = get_clean_keywords(papers, ["abstract"])
+            papers = get_clean_keywords(papers, ["title", "abstract"])
             methods = get_clean_keywords(methods, ["description"])
             tasks = get_clean_keywords(tasks, ["description"])
             datasets = get_clean_keywords(datasets, ["description"])
@@ -191,7 +191,7 @@ if __name__ == "__main__":
         
     if OPENALEX_IDS:
         try:
-            print("Fetching all paper-related OpenAlex IDs...")
+            print("[OPENALEX_IDS] Fetching all paper-related OpenAlex IDs...")
             with engine.connect() as conn:
                 timestamp = time.time()
                 query = """
@@ -206,13 +206,15 @@ if __name__ == "__main__":
                 papers = merged_df.rename(columns={'work_id': 'openalex_id'})
                 print(f"Got {papers['openalex_id'].notnull().sum()} OpenAlex IDs from the arXiv IDs ({(papers['openalex_id'].notnull().sum() / papers['arxiv_id'].notnull().sum()) * 100}%).")
             print(f"Done fetching all arxiv related OpenAlex IDs. Total time elapsed: {format_time(time.time() - timestamp)}")
+            print("")
         except Exception as e:
             print("Error fetching openalex_ids from OpenAlex.")
             print(e)
+            print("")
         
     if OPENALEX_WORKS:
         try:
-            print("Fetching works from OpenAlex...")
+            print("[OPENALEX_WORKS] Fetching works from OpenAlex...")
             with engine.connect() as conn:
                 timestamp = time.time()
                 openalex_ids_single = pd.DataFrame(papers["openalex_id"].unique(), columns=["oalex_id"])        
@@ -231,13 +233,15 @@ if __name__ == "__main__":
                 # result = result.drop(columns=["id_openalex"])
                 print(f"Got {len(result)} works from OpenAlex ({(len(result) / len(openalex_ids_single)) * 100}%).")
             print(f"Done fetching works from OpenAlex. Total time elapsed: {format_time(time.time() - timestamp)}")
+            print("")
         except Exception as e:
             print("Error fetching works from OpenAlex.")
             print(e)
+            print("")
         
     if OPENALEX_AUTHOR_IDS:
         try:
-            print("Fetching author information for each OpenAlex paper...")
+            print("[OPENALEX_AUTHOR_IDS] Fetching author information for each OpenAlex paper...")
             with engine.connect() as conn:
                 timestamp = time.time()
                 openalex_ids_single = pd.DataFrame(papers["openalex_id"].unique(), columns=["oalex_id"])
@@ -270,13 +274,15 @@ if __name__ == "__main__":
                 papers["id"] = papers["id"].astype(str)
                 print(f"Got {len(result)} authorships from OpenAlex ({(len(result) / len(openalex_ids_single)) * 100}%).")
             print(f"Done fetching author information for each OpenAlex paper. Total time elapsed: {format_time(time.time() - timestamp)}")
+            print("")
         except Exception as e:
             print("Error fetching author_ids from OpenAlex.")
             print(e)
+            print("")
         
     if OPENALEX_AUTHORS:
         try:
-            print("Fetching authors from OpenAlex...")
+            print("[OPENALEX_AUTHORS] Fetching authors from OpenAlex...")
             with engine.connect() as conn:
                 # Get all author ids from the papers dataframe
                 timestamp = time.time()
@@ -306,13 +312,15 @@ if __name__ == "__main__":
                 
                 print(f"Got {len(authors)} authors from OpenAlex.")
             print(f"Done fetching authors from OpenAlex. Total time elapsed: {format_time(time.time() - timestamp)}")
+            print("")
         except Exception as e:
             print("Error fetching authors from OpenAlex.")
             print(e)
+            print("")
         
     if OPENALEX_INSTITUTIONS:
         try:
-            print("Fetching institution information for each author...")
+            print("[OPENALEX_INSTITUTIONS] Fetching institution information for each author...")
             with engine.connect() as conn:
                 timestamp = time.time()
                 # Fetch all institution_ids from the authors dataframe stored in the column last_known_institution
@@ -348,13 +356,15 @@ if __name__ == "__main__":
                         
                 print(f"Got {len(institutions)} institutions from OpenAlex.")
             print(f"Done fetching institution information for each author. Total time elapsed: {format_time(time.time() - timestamp)}")
+            print("")
         except Exception as e:
             print("Error fetching institution information for each author.")
             print(e)
+            print("")
         
     if OPENALEX_CITATIONS:
         try:
-            print("Fetching citations from OpenAlex...")
+            print("[OPENALEX_CITATIONS] Fetching citations from OpenAlex...")
             with engine.connect() as conn:
                 timestamp = time.time()
                 openalex_ids_single = pd.DataFrame(papers["openalex_id"].unique(), columns=["oalex_id"])
@@ -401,9 +411,11 @@ if __name__ == "__main__":
                 
                 print(f"Got {len(work_citation_edges_csv)} citations from OpenAlex.")
             print(f"Done fetching citations from OpenAlex. Total time elapsed: {format_time(time.time() - timestamp)}")
+            print("")
         except Exception as e:
             print("Error fetching citations from OpenAlex.")
             print(e)
+            print("")
          
     print("Saving to json files...")
     papers.to_json(PROCESSED_JSON_PATH + "papers_processed.json", orient="records")

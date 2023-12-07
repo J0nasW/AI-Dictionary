@@ -7,9 +7,12 @@ from tqdm.auto import tqdm
 # register tqdm with pandas
 tqdm.pandas()
 import ahocorasick
-import pickle, re, os
+import pickle, re, os, time
 
 from helper.keyword_helper import get_clean_keywords, neo4j_fetch_data, make_aho_automation
+
+print(f"START TIME: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
+print("")
 
 OALEX_SAMPLE_LIMIT = 100000
 # OALEX_SAMPLE_FRAC = 0.01
@@ -142,3 +145,6 @@ print(f"UNIQUE: {len(all_paper_keywords_dedupe)} unique keywords for paper title
 # Save the all_paper_keywords_dedupe df
 print("Saving the all_paper_keywords_dedupe df...")
 all_paper_keywords_dedupe.to_csv(f"data/dictionaries/negative_keywords.csv", index=False)
+
+print("")
+print(f"END TIME: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
