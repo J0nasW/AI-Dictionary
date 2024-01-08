@@ -5,20 +5,22 @@ from sqlalchemy import create_engine, URL, text
 
 from helper.keyword_helper import get_clean_keywords, get_sentence_embeddings
 
+EXIST_JSON = True
+
 KEYWORDS = True
 EXIST_KEXWORDS = False # Only takes effect, if KEYWORDS is False
-EMBEDDINGS = True
+EMBEDDINGS = False
 EXISTING_EMBEDDINGS = False # Only takes effect, if EMBEDDINGS is False
 EMBEDDING_MODEL = "malteos/scincl"
 
-OPENALEX_IDS = True
-OPENALEX_AUTHOR_IDS = True
+OPENALEX_IDS = False
+OPENALEX_AUTHOR_IDS = False
 
-OPENALEX_WORKS = True
-OPENALEX_AUTHORS = True
-OPENALEX_INSTITUTIONS = True
+OPENALEX_WORKS = False
+OPENALEX_AUTHORS = False
+OPENALEX_INSTITUTIONS = False
 
-OPENALEX_CITATIONS = True
+OPENALEX_CITATIONS = False
 
 PROCESSED_JSON_PATH = "data/pwc_processed_json/"
 NEO4J_PATH = "data/neo4j/"
@@ -53,13 +55,22 @@ if __name__ == "__main__":
     print("---")
     print(f"START TIME: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
     print("")
-    print(f"Reading json files from {PROCESSED_JSON_PATH}...")
-    papers = pd.read_json(PROCESSED_JSON_PATH + "papers.json", dtype={"id": str})
-    methods = pd.read_json(PROCESSED_JSON_PATH + "methods.json", dtype={"id": str})
-    datasets = pd.read_json(PROCESSED_JSON_PATH + "datasets.json", dtype={"id": str})
-    areas = pd.read_json(PROCESSED_JSON_PATH + "areas.json", dtype={"id_md5": str})
-    tasks = pd.read_json(PROCESSED_JSON_PATH + "tasks.json", dtype={"area_id_md5": str, "id_md5": str})
-    print("Done reading json files.")
+    if EXIST_JSON:
+        print(f"Reading already processed json files from {PROCESSED_JSON_PATH}...")
+        papers = pd.read_json(PROCESSED_JSON_PATH + "papers_processed.json", dtype={"id": str})
+        methods = pd.read_json(PROCESSED_JSON_PATH + "methods_processed.json", dtype={"id": str})
+        datasets = pd.read_json(PROCESSED_JSON_PATH + "datasets_processed.json", dtype={"id": str})
+        areas = pd.read_json(PROCESSED_JSON_PATH + "areas_processed.json", dtype={"id_md5": str})
+        tasks = pd.read_json(PROCESSED_JSON_PATH + "tasks_processed.json", dtype={"area_id_md5": str, "id_md5": str})
+        print("Done reading json files.")
+    else:
+        print(f"Reading json files from {PROCESSED_JSON_PATH}...")
+        papers = pd.read_json(PROCESSED_JSON_PATH + "papers.json", dtype={"id": str})
+        methods = pd.read_json(PROCESSED_JSON_PATH + "methods.json", dtype={"id": str})
+        datasets = pd.read_json(PROCESSED_JSON_PATH + "datasets.json", dtype={"id": str})
+        areas = pd.read_json(PROCESSED_JSON_PATH + "areas.json", dtype={"id_md5": str})
+        tasks = pd.read_json(PROCESSED_JSON_PATH + "tasks.json", dtype={"area_id_md5": str, "id_md5": str})
+        print("Done reading json files.")
 
     if TEST_HEAD is not None:
         print("")
@@ -75,6 +86,13 @@ if __name__ == "__main__":
             print("")
             print("Extracting keywords...")
             timestamp = time.time()
+            
+            if EXIST_JSON:
+                # Delete the existing keywords
+                papers = papers.drop(columns=["abstract_keywords", "title_keywords"])
+                methods = methods.drop(columns=["description_keywords"])
+                datasets = datasets.drop(columns=["description_keywords"])
+                tasks = tasks.drop(columns=["description_keywords"])
             
             papers = get_clean_keywords(papers, ["title", "abstract"])
             methods = get_clean_keywords(methods, ["description"])

@@ -1,6 +1,6 @@
 # WordTrie Implementation (inspired by https://github.com/mhowison/wordtrie)
 import json, re
-from nltk.stem import WordNetLemmatizer
+import numpy as np
 
 _RESERVED_KEY = '#'  # Reserved value key
 
@@ -17,6 +17,7 @@ def _replace_value(old, new):
     return new
 
 def worker_initializer():
+    from nltk.stem import WordNetLemmatizer
     global lemmatizer
     lemmatizer = WordNetLemmatizer()
 
@@ -53,6 +54,8 @@ class WordTrie:
         if self.show_progress_bar:
             from tqdm import tqdm
             self.tqdm = tqdm
+        else:
+            self.tqdm = lambda x, total: x
 
     def add(self, word, value, weight=None, aggregator=_replace_value):
         # Modify to accept weight
@@ -88,6 +91,17 @@ class WordTrie:
             print("Weights are disabled.")
             for words, value in self.tqdm(zip(words_list, value_list), total=len(words_list)):
                 self.add(words, value)
+                
+    def add_from_df(self, df, column, value_column=None, weight_column=None):
+        # Add a list of words to the trie, with an optional list of values.
+        if value_column is None:
+            value_column = column
+        if weight_column is None:
+            weight_column = column
+        if self.weights == True:
+            self.add_bulk(df[column], df[value_column], df[weight_column])
+        else:
+            self.add_bulk(df[column], df[value_column])
             
     def length(self):
         # Return the number of nodes in the trie.
@@ -101,22 +115,6 @@ class WordTrie:
                 return None
             node = node[word]
         return node.get(_RESERVED_KEY)
-
-    # def search(self, text, return_nodes=False):
-    #     # Return a list of values that match the words.
-    #     if self.text_filter:
-    #         filter_string(text)   
-    #     node, match, values = self.root, [], []
-    #     for word in map(_ensure_valid_key, _split_if_string(text)):
-    #         if word in node:
-    #             node = node[word]
-    #             match.append(word)
-    #         else:
-    #             self._process_match(node, match, values, return_nodes)
-    #             node, match = self.root.get(word, self.root), [word] if word in self.root else []
-
-    #     self._process_match(node, match, values, return_nodes)
-    #     return values
     
     def search(self, text, return_nodes=False, only_return_words=False):
         # Return a list of values that match the words or just the words if only_return_words is True.
@@ -145,6 +143,36 @@ class WordTrie:
         else:
             self._process_match(node, match, values, return_nodes)
             return values
+        
+    def search_list(self, words_list, return_nodes=False, only_return_words=False):
+        # Return a list of values that match the words in words_list.
+        values, found_words = [], []
+        for text in words_list:
+            if self.text_filter:
+                text = filter_string(text)
+
+            node, match = self.root, []
+            for word in map(_ensure_valid_key, _split_if_string(text)):
+                if word in node:
+                    node = node[word]
+                    match.append(word)
+                else:
+                    if only_return_words:
+                        if match and _RESERVED_KEY in node:
+                            found_word = ' '.join(match)
+                            found_words.append(found_word)
+                    else:
+                        self._process_match(node, match, values, return_nodes)
+                    node, match = self.root.get(word, self.root), [word] if word in self.root else []
+
+            if only_return_words:
+                if match and _RESERVED_KEY in node:
+                    found_word = ' '.join(match)
+                    found_words.append(found_word)
+            else:
+                self._process_match(node, match, values, return_nodes)
+
+        return found_words if only_return_words else values
     
     def search_absolute(self, text):
         # Returns the absolute count of matches
@@ -267,7 +295,64 @@ class WordTrie:
             result.extend([mean_weight, total_weight])
 
         return result
-        
+    
+    # def build_phrase_document_matrix(self, documents):
+    #     from scipy.sparse import lil_matrix
+    #     # Get phrases with their corresponding trie IDs
+    #     phrase_dict = self.get_phrases_with_ids()
+    #     num_phrases = len(phrase_dict)
+
+    #     # Initialize a List of Lists matrix
+    #     matrix = lil_matrix((len(documents), num_phrases), dtype=np.int32)
+
+    #     # Process each document
+    #     for doc_id, text in enumerate(documents):
+    #         phrase_counts = self.aggregate_search_info(text)[0]  # Get count of each phrase in the text
+    #         for phrase_id, count in phrase_counts.items():
+    #             matrix[doc_id, phrase_id] = count
+
+    #     return matrix.tocsr()  # Convert to CSR format
+
+    def build_phrase_document_matrix(self, documents):
+        from scipy.sparse import lil_matrix
+        import collections.abc
+        # Get phrases with their corresponding trie IDs
+        phrase_dict = self.get_phrases_with_ids()
+        num_phrases = len(phrase_dict)
+
+        # Create a reverse mapping from phrases to their IDs
+        phrase_to_id = {phrase: idx for idx, phrase in phrase_dict.items()}
+
+        # Initialize a List of Lists matrix
+        matrix = lil_matrix((len(documents), num_phrases), dtype=np.int32)
+
+        # Process each document
+        for doc_id, doc in self.tqdm(enumerate(documents), total=len(documents), desc="Processing Documents"):
+            # Check if the document is a string or a list of key phrases
+            if isinstance(doc, str):
+                # If it's a string, use the search or match method to find key phrases
+                found_phrases = self.search(doc, only_return_words=True)
+            elif isinstance(doc, collections.abc.Iterable):
+                # If it's a list, assume each element is a key phrase
+                found_phrases = doc
+            else:
+                raise ValueError("Document must be a string or a list of key phrases.")
+
+            # Count occurrences of each phrase in the document
+            for phrase in found_phrases:
+                if phrase in phrase_to_id:
+                    matrix[doc_id, phrase_to_id[phrase]] += 1
+
+        return matrix.tocsr()  # Convert to CSR format for efficient operations
+    
+    def get_feature_names(self):
+        """
+        Retrieve feature names (key phrases) sorted by their corresponding trie IDs.
+        """
+        phrase_dict = self.get_phrases_with_ids()
+        # Sorting the phrases by their trie IDs
+        sorted_phrases = [phrase for phrase_id, phrase in sorted(phrase_dict.items())]
+        return sorted_phrases
 
     def _process_match(self, node, match, values, return_nodes):
         # Process a match. If return_nodes is True, return the node and the match.
@@ -284,6 +369,20 @@ class WordTrie:
             match_data = node[_RESERVED_KEY]
             return match_data.get('weight')
         return None
+    
+    def _traverse_and_collect_phrases(self, node, path, phrase_dict, next_id):
+        """
+        Helper function to recursively traverse the trie and collect phrases.
+        """
+        if _RESERVED_KEY in node:
+            # Found a complete phrase, add it to the dictionary
+            phrase_dict[next_id[0]] = ' '.join(path)
+            next_id[0] += 1
+
+        for child in node:
+            if child != _RESERVED_KEY:
+                # Recursively traverse the child nodes
+                self._traverse_and_collect_phrases(node[child], path + [child], phrase_dict, next_id)
     
     def _is_match(self, node, match):
         # Helper function to check if a match is valid
@@ -308,6 +407,28 @@ class WordTrie:
             if child != _RESERVED_KEY and isinstance(node[child], dict):
                 count += self.count_nodes(node[child])
         return count
+    
+    def count_phrases(self, node=None):
+        """ Count the number of phrases in the trie. """
+        if node is None:
+            node = self.root
+
+        count = 0
+        if _RESERVED_KEY in node:  # This node represents the end of a phrase
+            count += 1
+
+        for child in node:
+            if child != _RESERVED_KEY and isinstance(node[child], dict):
+                count += self.count_phrases(node[child])
+        return count
+    
+    def get_phrases_with_ids(self):
+        """
+        Returns a dictionary of all phrases with their corresponding trie ID, sorted by trie ID.
+        """
+        phrase_dict = {}
+        self._traverse_and_collect_phrases(self.root, [], phrase_dict, [0])
+        return dict(sorted(phrase_dict.items()))
             
     def visualize(self, node=None, indent="", last=True):
         """ Visualize the trie structure. """

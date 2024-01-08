@@ -47,7 +47,7 @@ def initialize_yake():
     # Specify custom parameters for YAKE
     language = "en"
     max_ngram_size = 3
-    deduplication_threshold = 0.25
+    deduplication_threshold = 0.2
     deduplication_algo = "seqm"
     windowSize = 5
     numOfKeywords = 10
@@ -72,16 +72,27 @@ def extract_keywords(row, column_name):
     try:
         if row[column_name] is None:
             return [], []
-        row[column_name] = unicodedata.normalize("NFKD", row[column_name]).encode('ASCII', 'ignore').decode('utf-8')
-        row[column_name] = re.sub(r"\[.*?\]|\(.*?\)|\{.*?\}", "", row[column_name])
+        
+        # Convert texts to utf-8
+        row[column_name] = unicodedata.normalize("NFKD", row[column_name]).encode('ASCII', 'ignore').decode('utf-8').strip()
+        
         row[column_name] = re.sub(r"https?:\/\/\S+", "", row[column_name])
-        row[column_name] = re.sub(r"[^a-zA-Z- ]", " ", row[column_name]).lower().strip()
+        row[column_name] = re.sub(r"[^a-zA-Z0-9- .,!?]", "", row[column_name])
+        
         unfiltered_keywords = yake_extractor.extract_keywords(row[column_name]) # Extract keywords using YAKE
+        
+        # Perform re tasks on the keywords
+        unfiltered_keywords = [(re.sub(r"\[.*?\]|\(.*?\)|\{.*?\}", "", keyword), score) for keyword, score in unfiltered_keywords]
+        unfiltered_keywords = [(re.sub(r"[^a-zA-Z- ]", "", keyword).lower().strip(), score) for keyword, score in unfiltered_keywords]
+        
+        # Check for noun chunks
         doc = nlp(row[column_name])
         noun_chunks = [chunk.text.strip().lower() for chunk in doc.noun_chunks]
+        
+        # Lemmatize and strip when not in noun chunks
         filtered_keywords = [(keyword.lower(), score) for keyword, score in unfiltered_keywords if any(keyword.lower() in noun_chunk for noun_chunk in noun_chunks)]
         filtered_keywords = [(lemmatizer.lemmatize(keyword).lower() if len(keyword.split()) == 1 else " ".join([lemmatizer.lemmatize(word).lower() for word in keyword.split()]), score) for keyword, score in filtered_keywords]
-        filtered_keywords = [(re.sub(r"[^a-zA-Z- ]", "", keyword).lower().strip(), score) for keyword, score in filtered_keywords]
+
         return unfiltered_keywords, filtered_keywords
     except:
         return [], []
@@ -173,7 +184,7 @@ def representation_generator(keyword_list):
     model = "google/flan-t5-large"
     generator = pipeline('text2text-generation', model=model, device=device)
     # prompt = "I have a general topic described by the following keywords: [KEYWORDS]. Based on these keywords, what is this topic about? Be specific, precise and short! Don't use names or numbers!"
-    prompt = "Based on the following keywords, come up with a topic name that is specific and precise: [KEYWORDS]"
+    prompt = "Based on the following keywords, come up with a topic name that is specific and precise, not general at all: [KEYWORDS]"
     representation_list = []
     for keywords in tqdm(keyword_list, desc="Generating representations..."):
         keyword_string = ', '.join(keywords)[:2000]
@@ -184,7 +195,7 @@ def representation_generator(keyword_list):
 def representation_generator_helper(keyword_string, generator, prompt):
     representation = generator(
         prompt,
-        max_length=10,
+        max_length=1024,
         do_sample=True,
         temperature=0.9
     )[0]['generated_text']
